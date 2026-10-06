@@ -120,7 +120,9 @@ export async function loadLeague(deps: Deps, query: string): Promise<LeagueData>
   if (!schedC) gaps.push("No schedule cached; opponents, kickoffs, locks and byes are unknown.");
 
   const players = playersC?.data ?? {};
-  const projections = projC ? scoreAll(projC.data, league.scoring_settings ?? {}) : new Map<string, number>();
+  const projections = projC
+    ? scoreAll(projC.data, league.scoring_settings ?? {}, `${id}:${projC.fetched_at}:${JSON.stringify(league.scoring_settings)}`)
+    : new Map<string, number>();
   const games = schedC?.data ?? null;
   if (games && games.some((g) => g.week === week && !g.kickoff)) {
     gaps.push(`Some week ${week} games have no kickoff time; players in those games show locked: "unknown".`);
@@ -180,18 +182,31 @@ export async function loadLeague(deps: Deps, query: string): Promise<LeagueData>
   };
 }
 
+// Normalized names are built once per player map and reused across requests.
+const nameIndex = new WeakMap<PlayerMap, Array<{ id: string; name: string; words: string[] }>>();
+function namesFor(players: PlayerMap) {
+  let idx = nameIndex.get(players);
+  if (!idx) {
+    idx = Object.entries(players).map(([id, p]) => {
+      const name = normalize(p[0]);
+      return { id, name, words: name.split(" ") };
+    });
+    nameIndex.set(players, idx);
+  }
+  return idx;
+}
+
 // Name lookup that never guesses: returns every candidate when a name is ambiguous.
 export function resolvePlayer(players: PlayerMap, query: string, prefer?: Set<string>) {
   const q = normalize(query);
   if (players[query]) return { status: "ok" as const, id: query };
-  const entries = Object.entries(players);
-  let hits = entries.filter(([, p]) => normalize(p[0]) === q);
+  const idx = namesFor(players);
+  let hits: Array<[string, PlayerMap[string]]> = idx.filter((x) => x.name === q).map((x) => [x.id, players[x.id]]);
   if (hits.length === 0) {
     const tokens = q.split(" ").filter(Boolean);
-    hits = entries.filter(([, p]) => {
-      const n = normalize(p[0]);
-      return tokens.every((t) => n.split(" ").some((w) => w.startsWith(t)));
-    });
+    hits = idx
+      .filter((x) => tokens.every((t) => x.words.some((w) => w.startsWith(t))))
+      .map((x) => [x.id, players[x.id]]);
   }
   // Ties between same-named players: prefer anyone already rostered in the league, then anyone on an NFL team.
   if (hits.length > 1 && prefer) {
