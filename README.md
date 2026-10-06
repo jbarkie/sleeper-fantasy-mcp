@@ -1,6 +1,6 @@
 # sleeper-fantasy-mcp
 
-A read-only remote MCP server that gives Claude live context from Joseph's Sleeper leagues: rosters, lineup optimization, free agents, trade impact and league activity. It runs statelessly on Cloudflare Workers Free.
+A read-only remote MCP server that gives Claude live context from Joseph's Sleeper leagues, plus optional ESPN leagues: rosters, lineup optimization, free agents, trade impact and league activity. It runs statelessly on Cloudflare Workers Free.
 
 **Keeping requests under the free plan's 10 ms CPU limit:**
 - A GitHub Action prebuilds everything heavy into Workers KV: a trimmed player list with pre-normalized names, per-league pre-scored projections, and the schedule with kickoff times.
@@ -17,6 +17,13 @@ A read-only remote MCP server that gives Claude live context from Joseph's Sleep
 | `optimize_lineup` | Best legal lineup; locked players are never moved |
 | `trade_impact` | Validated trade: both teams' lineup before/after, roster cuts |
 | `get_activity` | Recent transactions and Sleeper-wide trending adds/drops |
+| `espn_get_league_context` | ESPN: my roster with ESPN projections (league-scored, weekly + season), matchup, standings, my pending waiver claims |
+| `espn_optimize_lineup` | ESPN: best legal lineup; bye/OUT players never started |
+| `espn_get_free_agents` | ESPN: available players by weekly projection, with season projection and ownership % |
+| `espn_check_availability` | ESPN: free agent / waivers / rostered by; names resolved via cached public ESPN player list |
+| `espn_get_team` | ESPN: another team's roster |
+
+**ESPN support** reads private leagues with the owner's `espn_s2` and `SWID` browser cookies, stored as Worker secrets. They are a full ESPN session, not read-only, and the server only ever issues GETs. Logging out of ESPN invalidates them, and they expire at an undocumented time. When ESPN rejects them, the tools say so. To refresh, copy each value from Chrome DevTools (Application → Cookies → fantasy.espn.com), then run `pbpaste | npx wrangler secret put ESPN_S2` (and the same for `ESPN_SWID`). The ESPN tools only register when `ESPN_S2`, `ESPN_SWID` and `ESPN_LEAGUES` are all set. On 2026-10-06, a few ESPN league-context requests used up to 20 ms of CPU; ESPN can't trim its roster payloads.
 
 **Data sources.** Every response includes `as_of`, `sources` and `data_gaps`.
 - Documented Sleeper API: leagues, rosters, matchups, transactions, players.
