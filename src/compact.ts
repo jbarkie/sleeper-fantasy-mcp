@@ -1,3 +1,4 @@
+import { normalizeName } from "./names";
 import type { CompactPlayer, Game, PlayerMap, ProjectionMap } from "./types";
 
 const FANTASY_POSITIONS = new Set(["QB", "RB", "WR", "TE", "K", "DEF"]);
@@ -11,7 +12,7 @@ export function compactPlayers(raw: Record<string, any>): PlayerMap {
     const name = p.position === "DEF"
       ? `${p.first_name ?? id} ${p.last_name ?? ""}`.trim()
       : (p.full_name ?? `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim());
-    const rec: CompactPlayer = [name, p.position, p.team ?? null, p.injury_status ?? null, positions];
+    const rec: CompactPlayer = [name, p.position, p.team ?? null, p.injury_status ?? null, positions, normalizeName(name)];
     out[id] = rec;
   }
   return out;
@@ -24,7 +25,8 @@ export function compactProjections(raw: Record<string, any>): ProjectionMap {
     if (!stats || typeof stats !== "object") continue;
     const kept: Record<string, number> = {};
     for (const [k, v] of Object.entries(stats)) {
-      if (typeof v === "number" && !k.includes("adp")) kept[k] = v;
+      // ADP is not a projection, and IDP stats don't apply to these leagues' scoring.
+      if (typeof v === "number" && !k.includes("adp") && !k.startsWith("idp_")) kept[k] = v;
     }
     if (Object.keys(kept).some((k) => k !== "gp")) out[id] = kept;
   }

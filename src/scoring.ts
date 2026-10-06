@@ -37,20 +37,20 @@ export function scoreStats(stats: Record<string, number> | undefined, scoring: R
   return Math.round(pts * 100) / 100;
 }
 
-// Scored maps are reused across requests in the same isolate, keyed by projection
-// fetch time and league, since the same inputs always give the same result.
-const scoredMemo = new Map<string, Map<string, number>>();
-
-export function scoreAll(proj: ProjectionMap, scoring: Record<string, number>, memoKey?: string): Map<string, number> {
-  if (memoKey && scoredMemo.has(memoKey)) return scoredMemo.get(memoKey)!;
-  const out = new Map<string, number>();
+export function scoreAll(proj: ProjectionMap, scoring: Record<string, number>): Record<string, number> {
+  const out: Record<string, number> = {};
   for (const id in proj) {
     const pts = scoreStats(proj[id], scoring);
-    if (pts !== null) out.set(id, pts);
-  }
-  if (memoKey) {
-    if (scoredMemo.size > 20) scoredMemo.clear();
-    scoredMemo.set(memoKey, out);
+    if (pts !== null) out[id] = pts;
   }
   return out;
+}
+
+// Stable fingerprint of a league's scoring rules, used to detect points built with
+// out-of-date settings.
+export function scoringHash(scoring: Record<string, number>): string {
+  const text = Object.keys(scoring).sort().map((k) => `${k}=${scoring[k]}`).join(",");
+  let h = 2166136261;
+  for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 16777619);
+  return (h >>> 0).toString(16);
 }

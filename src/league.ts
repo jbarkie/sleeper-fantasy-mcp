@@ -1,6 +1,7 @@
 import type { DataCache } from "./cache";
 import { gameFor, type GameInfo } from "./schedule";
-import { scoreAll } from "./scoring";
+import { normalizeName as normalize } from "./names";
+import { scoringHash } from "./scoring";
 import type { SleeperClient } from "./sleeper";
 import type { Game, NflState, PlayerMap } from "./types";
 
@@ -63,9 +64,6 @@ export interface LeagueData {
   view: (id: string) => PlayerView;
 }
 
-const normalize = (s: string) =>
-  s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[.'’`-]/g, "")
-    .replace(/\b(jr|sr|ii|iii|iv|v)\b/g, "").replace(/\s+/g, " ").trim();
 
 export async function myLeagues(deps: Deps) {
   const [state, user] = await Promise.all([deps.sleeper.state(), deps.sleeper.user(deps.config.username)]);
@@ -76,8 +74,10 @@ export async function myLeagues(deps: Deps) {
   return { state, user, season, leagues: included, excluded_count: all.length - included.length };
 }
 
-export async function findLeague(deps: Deps, query: string) {
-  const ctx = await myLeagues(deps);
+type LeaguesCtx = Awaited<ReturnType<typeof myLeagues>>;
+
+export async function findLeague(deps: Deps, query: string, preloaded?: LeaguesCtx) {
+  const ctx = preloaded ?? (await myLeagues(deps));
   const q = normalize(query);
   const exact = ctx.leagues.filter((l) => l.league_id === query || normalize(l.name) === q);
   const matches = exact.length ? exact : ctx.leagues.filter((l) => normalize(l.name).includes(q));
@@ -88,20 +88,21 @@ export async function findLeague(deps: Deps, query: string) {
   return { ...ctx, leagueSummary: matches[0] };
 }
 
-export async function loadLeague(deps: Deps, query: string): Promise<LeagueData> {
-  const { state, user, season, leagueSummary } = await findLeague(deps, query);
+export async function loadLeague(deps: Deps, query: string, preloaded?: LeaguesCtx): Promise<LeagueData> {
+  const { state, user, season, leagueSummary } = await findLeague(deps, query, preloaded);
   const id = leagueSummary.league_id;
   const week = state.week;
   const gaps: string[] = [];
   if (state.season_type !== "regular") gaps.push(`NFL season_type is "${state.season_type}"; week ${week} advice may not apply.`);
 
-  const [league, rosters, users, matchups, playersC, projC, schedC, meta] = await Promise.all([
-    deps.sleeper.league(id),
+  // The user's league list already carries full league objects (settings, scoring, slots).
+  const league = leagueSummary;
+  const [rosters, users, matchups, playersC, pointsC, schedC, meta] = await Promise.all([
     deps.sleeper.rosters(id),
     deps.sleeper.users(id),
     deps.sleeper.matchups(id, week),
     deps.cache.players(),
-    deps.cache.projections(season, week),
+    deps.cache.points(id, season, week),
     deps.cache.schedule(season),
     deps.cache.meta(),
   ]);
@@ -112,17 +113,18 @@ export async function loadLeague(deps: Deps, query: string): Promise<LeagueData>
     if (weeks.length === 0 || weeks.includes(week)) gaps.push(`Cache warning: ${w}`);
   }
   const STALE_MS = 36 * 3600 * 1000;
-  for (const [label, c] of [["players", playersC], ["projections", projC], ["schedule", schedC]] as const) {
+  for (const [label, c] of [["players", playersC], ["projections", pointsC], ["schedule", schedC]] as const) {
     if (c && deps.now().getTime() - new Date(c.fetched_at).getTime() > STALE_MS) gaps.push(`${label} cache is stale (fetched ${c.fetched_at}).`);
   }
   if (!playersC) gaps.push("Player lookup cache is empty; names and positions are unavailable.");
-  if (!projC) gaps.push(`No week ${week} projections cached; projected points are unavailable.`);
+  if (!pointsC) gaps.push(`No week ${week} projections cached; projected points are unavailable.`);
+  else if (pointsC.data.scoring_hash !== scoringHash(league.scoring_settings ?? {})) {
+    gaps.push("League scoring settings changed since projections were scored; projected points may be off until the next cache refresh.");
+  }
   if (!schedC) gaps.push("No schedule cached; opponents, kickoffs, locks and byes are unknown.");
 
   const players = playersC?.data ?? {};
-  const projections = projC
-    ? scoreAll(projC.data, league.scoring_settings ?? {}, `${id}:${projC.fetched_at}:${JSON.stringify(league.scoring_settings)}`)
-    : new Map<string, number>();
+  const projections = new Map<string, number>(pointsC ? Object.entries(pointsC.data.points) : []);
   const games = schedC?.data ?? null;
   if (games && games.some((g) => g.week === week && !g.kickoff)) {
     gaps.push(`Some week ${week} games have no kickoff time; players in those games show locked: "unknown".`);
@@ -175,7 +177,7 @@ export async function loadLeague(deps: Deps, query: string): Promise<LeagueData>
     as_of: {
       sleeper_live: now.toISOString(),
       players: playersC?.fetched_at ?? null,
-      projections: projC?.fetched_at ?? null,
+      projections: pointsC?.fetched_at ?? null,
       schedule: schedC?.fetched_at ?? null,
       cache_last_run: meta?.last_run ?? null,
     },
@@ -188,7 +190,7 @@ function namesFor(players: PlayerMap) {
   let idx = nameIndex.get(players);
   if (!idx) {
     idx = Object.entries(players).map(([id, p]) => {
-      const name = normalize(p[0]);
+      const name = p[5] ?? normalize(p[0]);
       return { id, name, words: name.split(" ") };
     });
     nameIndex.set(players, idx);

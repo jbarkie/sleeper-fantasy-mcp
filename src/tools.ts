@@ -137,9 +137,10 @@ export async function getFreeAgents(deps: Deps, league: string, position?: strin
 }
 
 export async function checkAvailability(deps: Deps, names: string[], league?: string) {
-  const { leagues } = await myLeagues(deps);
+  const ctx = await myLeagues(deps);
+  const { leagues } = ctx;
   const targets = league ? leagues.filter((l) => l.league_id === league || l.name.toLowerCase().includes(league.toLowerCase())) : leagues;
-  const loaded = await Promise.all(targets.filter((l) => l.status === "in_season").map((l) => loadLeague(deps, l.league_id)));
+  const loaded = await Promise.all(targets.filter((l) => l.status === "in_season").map((l) => loadLeague(deps, l.league_id, ctx)));
   if (loaded.length === 0) throw new Error("No in-season leagues matched.");
   const players = loaded[0].players;
   const prefer = new Set(loaded.flatMap((d) => [...d.rosteredBy.keys()]));

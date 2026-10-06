@@ -170,9 +170,20 @@ describe("tools against live fixtures", () => {
   });
 
   it("reports missing projections as a data gap instead of inventing them", async () => {
-    const r: any = await tools.getLeagueContext(makeDeps({ omit: ["projections:2026:5"] }), "PGR");
+    const r: any = await tools.getLeagueContext(makeDeps({ omit: [`points:${PGR}:2026:5`] }), "PGR");
     expect(r.data_gaps.join(" ")).toMatch(/No week 5 projections/);
     expect(r.my_team.starters.every((s: any) => s.proj === null)).toBe(true);
+  });
+
+  it("flags points built with different scoring settings", async () => {
+    const deps = makeDeps();
+    const key = `points:${FF}:2026:5`;
+    const entry = bulk.find((e) => e.key === key)!;
+    const changed = JSON.parse(entry.value);
+    changed.data.scoring_hash = "different";
+    (deps.cache as any).kv.store.set(key, JSON.stringify(changed));
+    const r: any = await tools.getLeagueContext(deps, "Fantasy Football");
+    expect(r.data_gaps.join(" ")).toMatch(/scoring settings changed/);
   });
 
   it("flags stale caches", async () => {
