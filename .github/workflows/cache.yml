@@ -1,0 +1,36 @@
+name: Refresh cache
+
+on:
+  schedule:
+    - cron: "17 10 * * *"      # daily: players + projections + schedule
+    - cron: "47 */6 * * *"     # every 6 hours: projections + schedule
+  workflow_dispatch:
+    inputs:
+      players:
+        description: "Also refresh the player list"
+        type: boolean
+        default: true
+
+concurrency: cache-refresh
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Build cache entries
+        run: |
+          FLAGS=""
+          if [ "${{ github.event.schedule }}" = "17 10 * * *" ] || [ "${{ inputs.players }}" = "true" ]; then FLAGS="--players"; fi
+          npx tsx scripts/build-cache.ts --out .cache/bulk.json $FLAGS
+      - name: Write to Workers KV
+        run: npx wrangler kv bulk put .cache/bulk.json --namespace-id "${{ vars.KV_NAMESPACE_ID }}" --remote
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
