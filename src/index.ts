@@ -1,4 +1,5 @@
 import { DataCache, type KVLike } from "./cache";
+import * as espn from "./espn";
 import type { Deps } from "./league";
 import { handleMcp, type ToolDef } from "./mcp";
 import { SleeperClient } from "./sleeper";
@@ -10,6 +11,10 @@ export interface Env {
   EXCLUDED_LEAGUES?: string;
   // Secret path segment; the server only answers at /mcp/<MCP_PATH_TOKEN>.
   MCP_PATH_TOKEN: string;
+  // Optional ESPN support: session cookies (secrets) and comma-separated league ids.
+  ESPN_S2?: string;
+  ESPN_SWID?: string;
+  ESPN_LEAGUES?: string;
 }
 
 const LEAGUE = { type: "string", description: 'League name or ID, e.g. "PGR IT \'26" or "Fantasy Football"' };
@@ -106,6 +111,68 @@ export function buildTools(deps: Deps): ToolDef[] {
   ];
 }
 
+const ESPN_LEAGUE = { type: "string", description: "ESPN league id (optional when only one ESPN league is configured)" };
+
+export function buildEspnTools(deps: espn.EspnDeps): ToolDef[] {
+  return [
+    {
+      name: "espn_get_league_context",
+      description: "ESPN league: my roster (slot, injury, opponent, kickoff, lock, ESPN projection scored for this league, season projection), rules, matchup score, standings, waiver rank, and my pending waiver claims/trades. Call before any ESPN advice.",
+      inputSchema: { type: "object", properties: { league: ESPN_LEAGUE }, additionalProperties: false },
+      annotations: ro,
+      handler: (a) => espn.espnLeagueContext(deps, a.league ?? ""),
+    },
+    {
+      name: "espn_optimize_lineup",
+      description: "ESPN league: best legal lineup this week by ESPN projection, with changes from my current lineup. Bye-week and OUT players are never started; locked players are not moved.",
+      inputSchema: {
+        type: "object",
+        properties: { league: ESPN_LEAGUE, exclude: NAMES("Player names to treat as unavailable") },
+        additionalProperties: false,
+      },
+      annotations: ro,
+      handler: (a) => espn.espnOptimizeLineup(deps, a.league ?? "", a.exclude),
+    },
+    {
+      name: "espn_get_free_agents",
+      description: "ESPN league: best available players (free agents and waivers) re-ranked by this week's projection, with season projections and ownership %.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          league: ESPN_LEAGUE,
+          position: { type: "string", enum: ["QB", "RB", "WR", "TE", "K", "DEF"] },
+          limit: { type: "integer", minimum: 1, maximum: 50 },
+        },
+        additionalProperties: false,
+      },
+      annotations: ro,
+      handler: (a) => espn.espnFreeAgents(deps, a.league ?? "", a.position, a.limit ?? 15),
+    },
+    {
+      name: "espn_check_availability",
+      description: "ESPN league: whether named players are available, on waivers, or who rosters them. Ambiguous names return candidates.",
+      inputSchema: {
+        type: "object",
+        properties: { players: { ...NAMES("Player names", 10), minItems: 1 }, league: ESPN_LEAGUE },
+        required: ["players"], additionalProperties: false,
+      },
+      annotations: ro,
+      handler: (a) => espn.espnCheckAvailability(deps, a.league ?? "", a.players),
+    },
+    {
+      name: "espn_get_team",
+      description: "ESPN league: another team's roster with projections, for trade ideas and opponent analysis.",
+      inputSchema: {
+        type: "object",
+        properties: { league: ESPN_LEAGUE, team: { type: "string", description: "Team name, abbreviation, or id" } },
+        required: ["team"], additionalProperties: false,
+      },
+      annotations: ro,
+      handler: (a) => espn.espnGetTeam(deps, a.league ?? "", a.team),
+    },
+  ];
+}
+
 export function depsFromEnv(env: Env): Deps {
   return {
     sleeper: new SleeperClient(),
@@ -122,6 +189,12 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     if (!env.MCP_PATH_TOKEN || url.pathname !== `/mcp/${env.MCP_PATH_TOKEN}`) return new Response("Not found", { status: 404 });
-    return handleMcp(request, buildTools(depsFromEnv(env)));
+    const deps = depsFromEnv(env);
+    const tools = buildTools(deps);
+    if (env.ESPN_S2 && env.ESPN_SWID && env.ESPN_LEAGUES) {
+      const cfg = { s2: env.ESPN_S2, swid: env.ESPN_SWID, leagues: env.ESPN_LEAGUES.split(",").map((s) => s.trim()).filter(Boolean) };
+      tools.push(...buildEspnTools({ espn: new espn.EspnClient(cfg), cfg, cache: deps.cache, now: deps.now }));
+    }
+    return handleMcp(request, tools);
   },
 };

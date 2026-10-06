@@ -2,6 +2,7 @@ import type { CacheMeta, Cached, Game, LeaguePoints, PlayerMap } from "./types";
 
 export const KEYS = {
   players: "players",
+  espnPlayers: "espn:players",
   points: (leagueId: string, season: string, week: number) => `points:${leagueId}:${season}:${week}`,
   schedule: (season: string) => `schedule:${season}`,
   meta: "meta",
@@ -30,6 +31,7 @@ export const clearMemo = () => memo.clear();
 export class DataCache {
   constructor(readonly kv: KVLike) {}
   players = () => read<Cached<PlayerMap>>(this.kv, KEYS.players);
+  espnPlayers = () => read<Cached<PlayerMap>>(this.kv, KEYS.espnPlayers);
   points = (leagueId: string, season: string, week: number) => read<Cached<LeaguePoints>>(this.kv, KEYS.points(leagueId, season, week));
   schedule = (season: string) => read<Cached<Game[]>>(this.kv, KEYS.schedule(season));
   meta = () => read<CacheMeta>(this.kv, KEYS.meta);

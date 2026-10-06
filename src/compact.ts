@@ -33,6 +33,19 @@ export function compactProjections(raw: Record<string, any>): ProjectionMap {
   return out;
 }
 
+// ESPN public player list (players_wl) -> PlayerMap keyed by ESPN player id, so name
+// resolution can be shared with Sleeper. D/ST ids are negative.
+const ESPN_POSITIONS: Record<number, string> = { 1: "QB", 2: "RB", 3: "WR", 4: "TE", 5: "K", 16: "DEF" };
+export function compactEspnPlayers(raw: any[], proTeams: Record<number, string>): PlayerMap {
+  const out: PlayerMap = {};
+  for (const p of raw) {
+    const pos = ESPN_POSITIONS[p.defaultPositionId];
+    if (!pos || !p.fullName) continue;
+    out[String(p.id)] = [p.fullName, pos, proTeams[p.proTeamId] ?? null, null, [pos], normalizeName(p.fullName)];
+  }
+  return out;
+}
+
 const ESPN_TO_SLEEPER: Record<string, string> = { WSH: "WAS" };
 export const espnTeam = (abbr: string) => ESPN_TO_SLEEPER[abbr] ?? abbr;
 

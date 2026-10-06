@@ -5,7 +5,8 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { compactPlayers, compactProjections, mergeSchedule } from "../src/compact";
+import { compactEspnPlayers, compactPlayers, compactProjections, mergeSchedule } from "../src/compact";
+import { PRO_TEAMS } from "../src/espn";
 import { KEYS } from "../src/cache";
 import { scoreAll, scoringHash } from "../src/scoring";
 import { SLEEPER } from "../src/sleeper";
@@ -59,6 +60,15 @@ if (withPlayers) {
   }
   players = Object.fromEntries(Object.entries(compactPlayers(raw)).filter(([id, p]) => p[2] !== null || rostered.has(id)));
   meta.players_fetched_at = now();
+  // ESPN's public player list (no login) backs ESPN name lookups.
+  const espnRes = await fetch(`https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${season}/players?scoringPeriodId=0&view=players_wl`, {
+    headers: { "x-fantasy-filter": JSON.stringify({ filterActive: { value: true } }) },
+  });
+  if (espnRes.ok) {
+    put(KEYS.espnPlayers, { data: compactEspnPlayers(await espnRes.json(), PRO_TEAMS), fetched_at: now(), source: "espn-unofficial:players_wl", season });
+  } else {
+    warnings.push(`ESPN player list returned HTTP ${espnRes.status}`);
+  }
   put(KEYS.players, { data: players, fetched_at: meta.players_fetched_at, source: "sleeper:/players/nfl", season } satisfies Cached<PlayerMap>);
 }
 

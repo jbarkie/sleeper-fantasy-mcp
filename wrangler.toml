@@ -13,3 +13,18 @@ EXCLUDED_LEAGUES = "1389708735164723200"
 [[kv_namespaces]]
 binding = "CACHE"
 id = "7b58b960fb4940e08f40501249135347"
+
+# ESPN prototype: a separate Worker so the production connector is unaffected.
+# Deploy with `npx wrangler deploy --env espn-proto`. Secrets (per env):
+# MCP_PATH_TOKEN, ESPN_S2, ESPN_SWID.
+[env.espn-proto]
+name = "fantasy-mcp-espn-proto"
+
+[env.espn-proto.vars]
+SLEEPER_USERNAME = "jbarkie"
+EXCLUDED_LEAGUES = "1389708735164723200"
+ESPN_LEAGUES = "2077966273"
+
+[[env.espn-proto.kv_namespaces]]
+binding = "CACHE"
+id = "7b58b960fb4940e08f40501249135347"
