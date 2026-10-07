@@ -8,8 +8,8 @@ SLEEPER_USERNAME = "jbarkie"
 # Comma-separated league IDs to ignore. 1389708735164723200 = Progressive Fantasy Football (inactive).
 EXCLUDED_LEAGUES = "1389708735164723200"
 # ESPN league ids (comma-separated). ESPN tools register only when ESPN_S2 and ESPN_SWID
-# secrets are also set. 2077966273 = "Advanced fantasy" (private).
-ESPN_LEAGUES = "2077966273"
+# secrets are also set. 2077966273 = "Advanced fantasy" (private), 302668808 = second ESPN league.
+ESPN_LEAGUES = "2077966273,302668808"
 
 # MCP_PATH_TOKEN, ESPN_S2 and ESPN_SWID are secrets: `wrangler secret put <NAME>` (local dev reads .dev.vars).
 
